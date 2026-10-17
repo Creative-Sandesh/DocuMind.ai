@@ -48,6 +48,10 @@ The project demonstrates how modern **AI systems, vector databases, semantic sea
 
 Upload a supported document through the web interface.
 
+PDF and TXT uploads can be up to 100 MB (100 × 1024 × 1024 bytes). The backend
+reads uploads in 1 MB blocks and indexes text in batches; large documents may
+take longer to process.
+
 The backend processes the document and prepares it for semantic retrieval.
 
 ### ✂️ Intelligent Chunking
@@ -208,7 +212,7 @@ User
  ↓
 React Frontend
  ↓
-POST /documents/upload
+POST /api/documents/upload
  ↓
 FastAPI
  ↓
@@ -536,10 +540,10 @@ Install Ollama and download the LLM used by the project.
 Example:
 
 ```bash
-ollama pull llama3.2
+ollama pull llama3.2:3b
 ```
 
-Run Ollama:
+Start Ollama if its desktop app is not already running:
 
 ```bash
 ollama serve
@@ -548,8 +552,16 @@ ollama serve
 Verify the model:
 
 ```bash
-ollama run llama3.2
+ollama run llama3.2:3b
 ```
+
+The web app shows whether Ollama and this model are available. You can also
+check `http://127.0.0.1:8000/api/ollama/status`. Document chat requires an
+uploaded PDF or TXT file; upload one before sending a question. If Ollama is
+offline, start the desktop app or run `ollama serve` in a terminal. If the model
+is missing, run the pull command above. The backend uses
+`http://127.0.0.1:11434` and `llama3.2:3b` by default; set `OLLAMA_BASE_URL` or
+`OLLAMA_MODEL` in the backend environment to change them.
 
 ---
 
@@ -588,7 +600,7 @@ http://localhost:5173
 ### Upload Document
 
 ```http
-POST /documents/upload
+POST /api/documents/upload
 ```
 
 Uploads and processes a new document.
@@ -598,57 +610,99 @@ Uploads and processes a new document.
 ### Get Documents
 
 ```http
-GET /documents
+GET /api/documents
 ```
 
 Returns available documents.
 
 ---
 
-### Get Document
-
-```http
-GET /documents/{document_id}
-```
-
-Returns information about a specific document.
-
----
-
 ### Delete Document
 
 ```http
-DELETE /documents/{document_id}
+DELETE /api/documents/{document_id}
 ```
 
 Deletes the selected document and associated data.
 
 ---
 
-## Chat API
-
-### Ask Question
+### Search selected documents
 
 ```http
-POST /chat
+POST /api/documents/search
+```
+
+```json
+{
+  "document_ids": ["first-document-uuid", "second-document-uuid"],
+  "query": "encrypted backups",
+  "n_results": 8,
+  "filename": "policy.pdf",
+  "min_similarity": 0.35
+}
+```
+
+`document_ids` limits retrieval to the chosen documents. `filename` and
+`min_similarity` are optional filters. The response includes each result's
+document ID, filename, chunk index, page number when available, and score.
+For older clients, `document_id` still works in place of `document_ids`.
+
+---
+
+## Chat API
+
+### Ask a follow-up question
+
+```http
+POST /rag/chat-memory
 ```
 
 Example request:
 
 ```json
 {
-  "document_id": "document-id",
-  "message": "What is this document mainly about?"
+  "document_ids": ["first-document-uuid", "second-document-uuid"],
+  "question": "Compare their backup policies.",
+  "conversation_id": null
 }
 ```
 
-Example response:
+Use the returned `conversation_id` for each follow-up with the same selected
+document set. The
+response includes `answer`, `conversation_id`, `history_length`, and `sources`.
+Each source includes its chunk ID, filename, chunk index, similarity, excerpt,
+and a PDF page number when available.
+
+### Manage conversation sessions
+
+```http
+POST /rag/conversations
+GET /rag/conversations?document_id={document_id}
+GET /rag/conversations/{conversation_id}
+DELETE /rag/conversations/{conversation_id}
+```
+
+Saved assistant messages retain their source references. Conversation prompts
+use a bounded recent history; the full message history remains in local SQLite.
+
+### Stateless compatibility endpoint
+
+```http
+POST /api/chat
+```
+
+Example request:
 
 ```json
 {
-  "answer": "The document primarily discusses..."
+  "document_id": "existing-document-uuid",
+  "messages": [{"role": "user", "content": "What is this document about?"}]
 }
 ```
+
+PDF page numbers are stored for new uploads. Documents indexed before this
+change need to be uploaded again to gain page metadata.
 
 ---
 
@@ -837,28 +891,68 @@ This project was developed to explore and implement several important concepts i
 - [x] Document-specific filtering
 - [x] Context retrieval
 
-### 🚧 Phase 3 — Complete RAG Chat
+### ✅ Phase 3 — Context-Aware RAG Chat
 
-- [ ] Context-aware prompt generation
-- [ ] Source-aware responses
-- [ ] Improved retrieval ranking
-- [ ] Conversation history
-- [ ] Hallucination reduction
-- [ ] Citation support
+- [x] Document-bound conversation sessions and durable message history
+- [x] Bounded multi-turn context and follow-up retrieval
+- [x] Grounded prompts and out-of-coverage responses
+- [x] Retrieved source excerpts and PDF page references when available
+- [x] Conversation, source, and error-path tests
+
+The automated checks pass. A live two-turn conversation with local Ollama and
+document retrieval was also verified. Broader answer-quality evaluation across
+real documents remains future work.
+
+### Phase 4 — Multi-Document Intelligence
+
+- [x] **4.1 Selection:** Choose up to five documents. Conversations keep their
+  selection and reject a changed set on a follow-up. The API still accepts the
+  old `document_id` field for single-document clients.
+- [x] **4.2 Cross-document retrieval:** Embed the question once, query only the
+  chosen document IDs, preserve each chunk's attribution, and keep evidence
+  from multiple relevant documents in the answer context.
+- [x] **4.3 Comparison:** Comparison questions use an agreements and differences
+  prompt with explicit citation instructions. If one selected document has no
+  relevant evidence, the assistant declines the unsupported comparison.
+- [x] **4.4 Optimization:** Search queries avoid loading every chunk ID,
+  duplicate excerpts within a document are removed, and low-similarity chunks
+  are filtered. The local four-document evaluation returned **4/4 hit@1** and
+  no unselected documents. This small fixture is a smoke check, not a broad
+  benchmark; reranking has not shown a need yet.
+- [x] **4.5 Metadata filtering:** Search accepts selected document IDs, an
+  optional exact filename, and a minimum similarity score. Filtering is
+  enforced in Chroma and checked again before results reach the caller.
+
+Run the isolated retrieval check from `backend` with
+`python -m scripts.evaluate_retrieval`. It uses temporary in-memory data and
+does not alter uploaded documents.
+
+### Phase 5 — Application Experience
+
+- [x] Responsive document and chat workspace with readable controls and clear keyboard focus.
+- [x] Document dashboard showing ready status, selected count, upload progress,
+  success and failure messages, and confirmation before deletion.
+- [x] Chat loading and empty states, duplicate-send protection, readable long
+  answers, retrieved source excerpts, and accessible input controls.
+- [x] Saved conversation list with first-question titles, timestamps, open,
+  resume, new chat, and delete actions. A conversation remains viewable after
+  a source document is deleted, but becomes read only.
+- [x] Clear backend connection errors and mobile layouts.
+
+The frontend reads saved sessions from `GET /rag/conversations` and restores
+messages with `GET /rag/conversations/{conversation_id}`. The backend adds a
+`title` field derived from the first user question; existing session IDs and
+message storage stay the same.
 
 ### 🔮 Future Improvements
 
-- [ ] Multiple document chat
 - [ ] Streaming responses
 - [ ] Hybrid search
 - [ ] Reranking
 - [ ] User authentication
-- [ ] Chat sessions
-- [ ] Persistent conversation history
 - [ ] Docker support
 - [ ] Production deployment
-- [ ] Evaluation pipeline
-- [ ] Retrieval quality metrics
+- [ ] Larger real-world retrieval evaluation and metrics
 - [ ] Response feedback system
 - [ ] Advanced document metadata filtering
 

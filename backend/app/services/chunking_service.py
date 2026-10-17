@@ -11,15 +11,22 @@ def chunk_text(
     chunk_size: int = CHUNK_SIZE,
     chunk_overlap: int = CHUNK_OVERLAP
 ):
+    return list(iter_text_chunks(text, document_id, chunk_size, chunk_overlap))
+
+
+def iter_text_chunks(
+    text: str,
+    document_id: str,
+    chunk_size: int = CHUNK_SIZE,
+    chunk_overlap: int = CHUNK_OVERLAP,
+):
     if not text.strip():
-        return []
+        return
 
     if chunk_overlap >= chunk_size:
         raise ValueError(
             "Chunk overlap must be smaller than chunk size."
         )
-
-    chunks = []
 
     start = 0
     chunk_index = 0
@@ -40,10 +47,8 @@ def chunk_text(
                 "character_count": len(chunk_text_content)
             }
 
-            chunks.append(chunk)
+            yield chunk
 
             chunk_index += 1
 
         start += chunk_size - chunk_overlap
-
-    return chunks

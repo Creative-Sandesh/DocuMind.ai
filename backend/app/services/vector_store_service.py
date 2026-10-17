@@ -70,8 +70,7 @@ def store_chunks(
             chunk["text"]
         )
 
-        metadatas.append(
-            {
+        metadata = {
                 "document_id":
                     chunk["document_id"],
 
@@ -84,7 +83,9 @@ def store_chunks(
                 "character_count":
                     chunk["character_count"]
             }
-        )
+        if chunk.get("page_number") is not None:
+            metadata["page_number"] = chunk["page_number"]
+        metadatas.append(metadata)
 
     collection.upsert(
         ids=ids,
@@ -100,48 +101,37 @@ def get_vector_count() -> int:
     return collection.count()
 
 
+def document_exists(document_id: str) -> bool:
+    if not document_id:
+        return False
+    results = collection.get(where={"document_id": document_id}, limit=1)
+    return bool(results.get("ids"))
+
+
 def search_chunks(
     query_embedding: list[float],
     document_id: str,
-    n_results: int = 5
+    n_results: int = 5,
+    filename: str | None = None,
 ) -> list[dict]:
 
-    if not document_id:
+    if not document_id or n_results < 1:
         return []
 
     if collection.count() == 0:
         return []
 
-    document_data = collection.get(
-        where={
-            "document_id": document_id
-        }
-    )
-
-    document_chunk_ids = (
-        document_data.get("ids")
-        or []
-    )
-
-    if not document_chunk_ids:
-        return []
-
-    result_count = min(
-        n_results,
-        len(document_chunk_ids)
-    )
+    where = {"document_id": document_id}
+    if filename is not None:
+        where = {"$and": [{"document_id": document_id}, {"filename": filename}]}
 
     results = collection.query(
         query_embeddings=[
             query_embedding
         ],
 
-        n_results=result_count,
-
-        where={
-            "document_id":
-                document_id
-        },
+        n_results=n_results,
+        where=where,
 
         include=[
             "documents",
@@ -292,7 +282,7 @@ def delete_document_file(
 
     matching_files = (
         DOCUMENT_DIR.glob(
-            f"{document_id}.*"
+            f"file{document_id}.*"
         )
     )
 

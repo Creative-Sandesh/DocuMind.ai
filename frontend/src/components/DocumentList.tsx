@@ -1,55 +1,35 @@
-import {
-  useState,
-  type MouseEvent,
-} from "react";
+import { useState } from "react";
 
-import type {
-  DocumentSummary,
-} from "../types/chat";
+import type { DocumentSummary } from "../types/chat";
 
 interface DocumentListProps {
   documents: DocumentSummary[];
-
-  activeDocumentId:
-    string | null;
-
-  onSelect: (
-    documentId: string
-  ) => void;
-
-  onDelete: (
-    documentId: string
-  ) => Promise<void>;
+  selectedDocumentIds: string[];
+  onToggle: (documentId: string) => void;
+  onDelete: (documentId: string) => Promise<void>;
 }
+
+const MAX_SELECTED_DOCUMENTS = 5;
 
 function DocumentList({
   documents,
-  activeDocumentId,
-  onSelect,
+  selectedDocumentIds,
+  onToggle,
   onDelete,
 }: DocumentListProps) {
-  const [deletingId, setDeletingId] =
-    useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
-  const [error, setError] =
-    useState("");
-
-  async function handleDelete(
-    event: MouseEvent<HTMLButtonElement>,
-    documentId: string
-  ) {
-    event.stopPropagation();
-
+  async function handleDelete(documentId: string) {
+    const filename = documents.find((document) => document.document_id === documentId)?.filename ?? "this document";
+    if (!window.confirm(`Delete ${filename}? Saved conversations that use it will become read only.`)) return;
     try {
       setDeletingId(documentId);
       setError("");
-
       await onDelete(documentId);
     } catch (error) {
       setError(
-        error instanceof Error
-          ? error.message
-          : "Unable to delete document."
+        error instanceof Error ? error.message : "Unable to delete document."
       );
     } finally {
       setDeletingId(null);
@@ -60,80 +40,52 @@ function DocumentList({
     <div className="document-list">
       <div className="document-list-header">
         <h2>Documents</h2>
-
-        <span>
-          {documents.length}
-        </span>
+        <span>{selectedDocumentIds.length} selected</span>
       </div>
+      <p className="document-selection-hint">
+        Select up to {MAX_SELECTED_DOCUMENTS} documents for chat.
+      </p>
 
-      {error && (
-        <div className="document-list-error">
-          {error}
-        </div>
-      )}
+      {error && <div className="document-list-error" role="alert">{error}</div>}
 
       {documents.length === 0 ? (
-        <div className="no-documents">
-          No documents uploaded yet.
-        </div>
+        <div className="no-documents">No documents uploaded yet. Choose a PDF or TXT file above to get started.</div>
       ) : (
         <div className="document-items">
           {documents.map((document) => {
-            const active =
-              document.document_id ===
-              activeDocumentId;
+            const selected = selectedDocumentIds.includes(document.document_id);
+            const selectionFull = selectedDocumentIds.length >= MAX_SELECTED_DOCUMENTS;
 
             return (
-              <button
-                type="button"
+              <div
                 key={document.document_id}
-                className={
-                  active
-                    ? "document-item active"
-                    : "document-item"
-                }
-                onClick={() =>
-                  onSelect(
-                    document.document_id
-                  )
-                }
+                className={selected ? "document-item active" : "document-item"}
               >
-                <div className="document-info">
-                  <div className="document-icon">
-                    DOC
-                  </div>
-
-                  <div className="document-details">
-                    <strong>
-                      {document.filename}
-                    </strong>
-
-                    <span>
-                      {document.chunks} chunks
+                <label className="document-select">
+                  <input
+                    type="checkbox"
+                    checked={selected}
+                    disabled={!selected && selectionFull}
+                    onChange={() => onToggle(document.document_id)}
+                  />
+                  <span className="document-info">
+                    <span className="document-icon">DOC</span>
+                    <span className="document-details">
+                      <strong>{document.filename}</strong>
+                      <span>Ready · {document.chunks} {document.chunks === 1 ? "chunk" : "chunks"}</span>
                     </span>
-                  </div>
-                </div>
-
+                  </span>
+                </label>
                 <button
                   type="button"
                   className="delete-document"
-                  disabled={
-                    deletingId ===
-                    document.document_id
-                  }
-                  onClick={(event) =>
-                    handleDelete(
-                      event,
-                      document.document_id
-                    )
-                  }
+                  aria-label={`Delete ${document.filename}`}
+                  disabled={deletingId === document.document_id}
+                  onClick={() => handleDelete(document.document_id)}
                 >
-                  {deletingId ===
-                  document.document_id
-                    ? "..."
-                    : "×"}
+                  {deletingId === document.document_id ? "..." : "×"}
                 </button>
-              </button>
+              </div>
             );
           })}
         </div>

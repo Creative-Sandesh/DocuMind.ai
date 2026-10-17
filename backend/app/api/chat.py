@@ -3,12 +3,15 @@ import httpx
 
 from app.schemas.chat import (
     ChatRequest,
-    ChatResponse,ChatSource
+    ChatResponse,
 )
 
 from app.services.rag_service import (
-    generate_rag_response
+    DocumentNotFoundError,
+    build_chat_sources,
+    generate_rag_response,
 )
+from app.services.ollama_service import OllamaResponseError
 
 
 router = APIRouter()
@@ -34,31 +37,17 @@ async def chat(
         answer, retrieved_chunks = (
             await generate_rag_response(
                 messages=messages,
-                document_id=document_id
+                document_id=document_id,
+                document_ids=[str(value) for value in request.document_ids],
             )
         )
-        sources = []
-
-        for chunk in retrieved_chunks:
-            metadata = chunk["metadata"]
-
-            sources.append(
-                    ChatSource(
-                        chunk_id=chunk["chunk_id"],
-                        document_id=metadata["document_id"],
-                        filename=metadata["filename"],
-                        chunk_index=metadata["chunk_index"],
-                        similarity=round(
-                            chunk["similarity"],
-                            4
-                        )
-                    )
-                )  
-        
         return ChatResponse(
             answer=answer,
-            sources=sources
+            sources=build_chat_sources(retrieved_chunks),
         )
+
+    except DocumentNotFoundError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
 
     except ValueError as error:
         raise HTTPException(
@@ -85,10 +74,10 @@ async def chat(
         raise HTTPException(
             status_code=502,
             detail=f"Ollama returned an error: {error.response.status_code}",
-        )
-    except Exception as error:
+        ) from error
+
+    except OllamaResponseError as error:
         raise HTTPException(
-            status_code=500,
-            detail=f"Internal Server error: {str(error)}",
-        )
-    
+            status_code=502,
+            detail=str(error),
+        ) from error

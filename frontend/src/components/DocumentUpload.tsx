@@ -18,6 +18,8 @@ interface DocumentUploadProps {
   ) => void;
 }
 
+const MAX_FILE_SIZE = 100 * 1024 * 1024;
+
 function DocumentUpload({
   onUploadSuccess,
 }: DocumentUploadProps) {
@@ -71,6 +73,13 @@ function DocumentUpload({
       return;
     }
 
+    if (file.size > MAX_FILE_SIZE) {
+      setSelectedFile(null);
+      setError("File size must be 100 MB or less.");
+      event.target.value = "";
+      return;
+    }
+
     setSelectedFile(file);
   }
 
@@ -118,7 +127,7 @@ function DocumentUpload({
 
           <p>
             Upload a PDF or TXT file to add it
-            to your local knowledge base.
+            to your local knowledge base (up to 100 MB).
           </p>
         </div>
       </div>
@@ -127,6 +136,7 @@ function DocumentUpload({
         <input
           ref={inputRef}
           type="file"
+          aria-label="Choose a PDF or TXT document"
           accept=".pdf,.txt"
           disabled={uploading}
           onChange={handleFileChange}
@@ -148,18 +158,20 @@ function DocumentUpload({
 
       {selectedFile && (
         <div className="selected-file">
-          {selectedFile.name}
+          Selected: {selectedFile.name}
         </div>
       )}
 
+      {uploading && <p className="upload-progress" role="status">Uploading and processing your document. Large files may take a few minutes.</p>}
+
       {error && (
-        <div className="upload-error">
+        <div className="upload-error" role="alert">
           {error}
         </div>
       )}
 
       {uploadedDocument && (
-        <div className="upload-success">
+        <div className="upload-success" role="status">
           <strong>
             {uploadedDocument.filename}
           </strong>

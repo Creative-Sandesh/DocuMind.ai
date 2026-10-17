@@ -24,11 +24,13 @@ from app.services.document_service import (
 )
 
 from app.services.retrieval_service import (
-    retrieve_relevant_chunks
+    retrieve_across_documents
 )
+from app.services.retrieval_ranking_service import rank_chunks
 
 from app.services.vector_store_service import (
     list_documents,
+    document_exists,
     delete_document_chunks,
     delete_document_file
 )
@@ -49,23 +51,14 @@ async def upload_document(
         file
     )
 
-    chunks = result["chunks"]
-
-    embedding_dimension = 0
-
-    if chunks:
-        embedding_dimension = len(
-            chunks[0]["embedding"]
-        )
-
     return DocumentUploadResponse(
         document_id=result["document_id"],
         filename=result["filename"],
         content_type=result["content_type"],
         characters=result["characters"],
-        chunks=len(chunks),
-        embeddings=len(chunks),
-        embedding_dimension=embedding_dimension,
+        chunks=result["chunk_count"],
+        embeddings=result["chunk_count"],
+        embedding_dimension=result["embedding_dimension"],
         stored_chunks=result["stored_chunks"],
         vector_store_total=result[
             "vector_store_total"
@@ -136,14 +129,25 @@ async def delete_document(
 async def search_documents(
     request: SearchRequest
 ):
+    selected_ids = [str(value) for value in request.document_ids]
+    for document_id in selected_ids:
+        if not await asyncio.to_thread(document_exists, document_id):
+            raise HTTPException(status_code=404, detail=f"Document not found: {document_id}")
 
-    results = await asyncio.to_thread(
-        retrieve_relevant_chunks,
+    candidates = await asyncio.to_thread(
+        retrieve_across_documents,
         query=request.query,
-        document_id=str(
-            request.document_id
-        ),
-        n_results=request.n_results
+        document_ids=selected_ids,
+        n_results=request.n_results,
+        filename=request.filename,
+    )
+    results = rank_chunks(
+        candidates,
+        document_ids=selected_ids,
+        limit=request.n_results,
+        min_similarity=request.min_similarity,
+        balanced=len(selected_ids) > 1,
+        filename=request.filename,
     )
 
     search_results = []
@@ -175,6 +179,8 @@ async def search_documents(
                 chunk_index=metadata[
                     "chunk_index"
                 ],
+
+                page_number=metadata.get("page_number"),
 
                 distance=result[
                     "distance"

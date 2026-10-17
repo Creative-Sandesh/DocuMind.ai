@@ -1,6 +1,7 @@
 from pydantic import BaseModel,Field
 
 from uuid import UUID
+from app.schemas.chat import DocumentSelection
 
 class DocumentUploadResponse(BaseModel):
     document_id : str
@@ -24,9 +25,9 @@ class DocumentChunk(BaseModel):
     chunk_index: int
     text: str
     character_count: int
+    page_number: int | None = None
     
-class SearchRequest(BaseModel):
-    document_id: UUID
+class SearchRequest(DocumentSelection):
     query: str = Field(
         min_length=1,
         max_length=1000
@@ -36,6 +37,8 @@ class SearchRequest(BaseModel):
         ge=1,
         le =20
     )
+    filename: str | None = Field(default=None, min_length=1, max_length=255)
+    min_similarity: float = Field(default=0.0, ge=0.0, le=1.0)
     
 class SearchResult(BaseModel):
     chunk_id: str
@@ -43,6 +46,7 @@ class SearchResult(BaseModel):
     document_id:str
     filename: str
     chunk_index: int
+    page_number: int | None = None
     distance: float
     similarity: float
 
@@ -62,4 +66,4 @@ class DocumentDeleteResponse(BaseModel):
     document_id : str
     deleted_chunks: int
     status: str
-    
+

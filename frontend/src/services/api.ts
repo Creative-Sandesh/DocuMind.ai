@@ -1,12 +1,33 @@
 import type {
   ChatResponse,
+  ConversationDetail,
+  ConversationListResponse,
   DeleteDocumentResponse,
   DocumentListResponse,
+  MemoryChatResponse,
   Message,
+  OllamaStatus,
   UploadResponse,
 } from "../types/chat";
 
-const API_BASE_URL = "http://127.0.0.1:8000/api";
+const SERVER_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = `${SERVER_BASE_URL}/api`;
+
+async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, options);
+  } catch {
+    throw new Error("Cannot reach the backend. Start the backend server and try again.");
+  }
+}
+
+export async function getOllamaStatus(): Promise<OllamaStatus> {
+  const response = await apiFetch(`${API_BASE_URL}/ollama/status`);
+  if (!response.ok) {
+    throw new Error("Unable to check Ollama status.");
+  }
+  return response.json();
+}
 
 async function getErrorMessage(
   response: Response,
@@ -36,7 +57,7 @@ export async function uploadDocument(
 
   formData.append("file", file);
 
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/documents/upload`,
     {
       method: "POST",
@@ -58,7 +79,7 @@ export async function uploadDocument(
 
 export async function getDocuments():
 Promise<DocumentListResponse> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/documents`
   );
 
@@ -77,7 +98,7 @@ Promise<DocumentListResponse> {
 export async function deleteDocument(
   documentId: string
 ): Promise<DeleteDocumentResponse> {
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/documents/${documentId}`,
     {
       method: "DELETE",
@@ -97,7 +118,7 @@ export async function deleteDocument(
 }
 
 export async function sendChatMessage(
-  documentId: string,
+  documentIds: string[],
   messages: Message[]
 ): Promise<ChatResponse> {
   const cleanMessages = messages.map(
@@ -107,7 +128,7 @@ export async function sendChatMessage(
     })
   );
 
-  const response = await fetch(
+  const response = await apiFetch(
     `${API_BASE_URL}/chat`,
     {
       method: "POST",
@@ -116,7 +137,7 @@ export async function sendChatMessage(
       },
 
       body: JSON.stringify({
-        document_id: documentId,
+        document_ids: documentIds,
         messages: cleanMessages,
       }),
     }
@@ -132,4 +153,53 @@ export async function sendChatMessage(
   }
 
   return response.json();
+}
+
+export async function sendMemoryChatMessage(
+  documentIds: string[],
+  question: string,
+  conversationId: string | null
+): Promise<MemoryChatResponse> {
+  const response = await apiFetch(`${SERVER_BASE_URL}/rag/chat-memory`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      document_ids: documentIds,
+      question,
+      conversation_id: conversationId,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      await getErrorMessage(response, "Unable to generate response.")
+    );
+  }
+
+  return response.json();
+}
+
+export async function getConversations(): Promise<ConversationListResponse> {
+  const response = await apiFetch(`${SERVER_BASE_URL}/rag/conversations`);
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response, "Unable to load conversations."));
+  }
+  return response.json();
+}
+
+export async function getConversation(id: string): Promise<ConversationDetail> {
+  const response = await apiFetch(`${SERVER_BASE_URL}/rag/conversations/${id}`);
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response, "Unable to open conversation."));
+  }
+  return response.json();
+}
+
+export async function deleteConversation(id: string): Promise<void> {
+  const response = await apiFetch(`${SERVER_BASE_URL}/rag/conversations/${id}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response, "Unable to delete conversation."));
+  }
 }

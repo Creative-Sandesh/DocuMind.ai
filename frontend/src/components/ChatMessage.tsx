@@ -42,20 +42,23 @@ function ChatMessage({
           message.sources.length > 0 && (
             <div className="sources">
               <div className="sources-title">
-                Sources
+                Retrieved evidence
               </div>
 
               {message.sources.map(
-                (source) => (
+                (source, index) => (
                   <div
                     key={source.chunk_id}
                     className="source-card"
                   >
                     <div className="source-name">
-                      {source.filename}
+                      [{index + 1}] {source.filename}
                     </div>
 
                     <div className="source-meta">
+                      {source.page_number != null && (
+                        <span>Page {source.page_number}</span>
+                      )}
                       <span>
                         Chunk{" "}
                         {source.chunk_index}
@@ -70,6 +73,12 @@ function ChatMessage({
                         %
                       </span>
                     </div>
+                    {source.text && (
+                      <details className="source-excerpt">
+                        <summary>View excerpt</summary>
+                        <p>{source.text}</p>
+                      </details>
+                    )}
                   </div>
                 )
               )}

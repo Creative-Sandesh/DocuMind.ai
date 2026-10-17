@@ -3,6 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.chat import router as chat_router
 from app.api.documents import router as document_router
+from app.api.rag_memory import router as rag_memory_router
+from app.api.learning_content import router as learning_content_router
+from app.services.ollama_service import get_ollama_status
+
 
 app = FastAPI(
     title = "Offline AI learning API",
@@ -36,6 +40,11 @@ async def health():
         "status": "healthy"
     }
 
+
+@app.get("/api/ollama/status")
+async def ollama_status():
+    return await get_ollama_status()
+
 app.include_router(
     chat_router,
     prefix="/api",
@@ -46,3 +55,6 @@ app.include_router(
     document_router,
     prefix="/api/documents"
 )
+
+app.include_router(rag_memory_router)
+app.include_router(learning_content_router)
