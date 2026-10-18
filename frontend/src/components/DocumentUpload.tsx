@@ -2,6 +2,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type DragEvent,
 } from "react";
 
 import {
@@ -31,6 +32,7 @@ function DocumentUpload({
 
   const [uploading, setUploading] =
     useState(false);
+  const [dragging, setDragging] = useState(false);
 
   const [error, setError] =
     useState("");
@@ -38,12 +40,7 @@ function DocumentUpload({
   const [uploadedDocument, setUploadedDocument] =
     useState<UploadResponse | null>(null);
 
-  function handleFileChange(
-    event: ChangeEvent<HTMLInputElement>
-  ) {
-    const file =
-      event.target.files?.[0] ?? null;
-
+  function selectFile(file: File | null) {
     setError("");
     setUploadedDocument(null);
 
@@ -67,20 +64,39 @@ function DocumentUpload({
       setError(
         "Only PDF and TXT files are supported."
       );
+      return;
+    }
 
-      event.target.value = "";
-
+    if (file.size === 0) {
+      setSelectedFile(null);
+      setError("This file is empty. Choose another PDF or TXT file.");
       return;
     }
 
     if (file.size > MAX_FILE_SIZE) {
       setSelectedFile(null);
       setError("File size must be 100 MB or less.");
-      event.target.value = "";
       return;
     }
 
     setSelectedFile(file);
+  }
+
+  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    selectFile(event.target.files?.[0] ?? null);
+    event.target.value = "";
+  }
+
+  function handleDrop(event: DragEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    setDragging(false);
+    if (uploading) return;
+    if (event.dataTransfer.files.length > 1) {
+      setSelectedFile(null);
+      setError("Upload one document at a time.");
+      return;
+    }
+    selectFile(event.dataTransfer.files[0] ?? null);
   }
 
   async function handleUpload() {
@@ -136,14 +152,35 @@ function DocumentUpload({
         <input
           ref={inputRef}
           type="file"
+          className="sr-only"
           aria-label="Choose a PDF or TXT document"
           accept=".pdf,.txt"
           disabled={uploading}
           onChange={handleFileChange}
         />
 
+        <button type="button" className={`upload-dropzone${dragging ? " dragging" : ""}`}
+          disabled={uploading}
+          aria-describedby="upload-description"
+          onClick={() => inputRef.current?.click()}
+          onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
+          onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; setDragging(true); }}
+          onDragLeave={(event) => { event.preventDefault(); setDragging(false); }}
+          onDrop={handleDrop}>
+          <span className="upload-dropzone-icon" aria-hidden="true">↑</span>
+          <strong>{dragging ? "Drop your document here" : "Choose a file or drag it here"}</strong>
+          <span id="upload-description">PDF or TXT · maximum 100 MB</span>
+        </button>
+
+        {selectedFile && <div className="upload-file-preview">
+          <span className="upload-file-mark" aria-hidden="true">DOC</span>
+          <span><strong>{selectedFile.name}</strong><small>{(selectedFile.size / (1024 * 1024)).toFixed(1)} MB · ready to upload</small></span>
+          <button type="button" className="upload-clear" aria-label="Remove selected file" disabled={uploading} onClick={() => setSelectedFile(null)}>×</button>
+        </div>}
+
         <button
           type="button"
+          className="upload-submit"
           onClick={handleUpload}
           disabled={
             uploading ||
@@ -155,12 +192,6 @@ function DocumentUpload({
             : "Upload"}
         </button>
       </div>
-
-      {selectedFile && (
-        <div className="selected-file">
-          Selected: {selectedFile.name}
-        </div>
-      )}
 
       {uploading && <p className="upload-progress" role="status">Uploading and processing your document. Large files may take a few minutes.</p>}
 

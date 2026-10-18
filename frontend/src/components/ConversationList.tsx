@@ -43,7 +43,7 @@ function ConversationList({
       {loading ? (
         <p className="panel-empty" role="status">Loading conversations...</p>
       ) : conversations.length === 0 ? (
-        <p className="panel-empty">Your conversations will appear here after you send a question.</p>
+        <div className="panel-empty conversation-empty"><span className="empty-state-mark" aria-hidden="true">✦</span><strong>No conversations yet</strong><span>Send a question in the chat to save your first conversation.</span></div>
       ) : (
         <ul className="conversation-items">
           {conversations.map((conversation) => {

@@ -43,13 +43,15 @@ function DocumentList({
         <span>{selectedDocumentIds.length} selected</span>
       </div>
       <p className="document-selection-hint">
-        Select up to {MAX_SELECTED_DOCUMENTS} documents for chat.
+        {selectedDocumentIds.length >= MAX_SELECTED_DOCUMENTS
+          ? "Five documents selected. Deselect one to add another."
+          : `Select up to ${MAX_SELECTED_DOCUMENTS} documents for chat.`}
       </p>
 
       {error && <div className="document-list-error" role="alert">{error}</div>}
 
       {documents.length === 0 ? (
-        <div className="no-documents">No documents uploaded yet. Choose a PDF or TXT file above to get started.</div>
+        <div className="no-documents"><span className="empty-state-mark" aria-hidden="true">⌑</span><strong>Your library is empty</strong><span>Choose a PDF or TXT file above to start chatting with your material.</span></div>
       ) : (
         <div className="document-items">
           {documents.map((document) => {

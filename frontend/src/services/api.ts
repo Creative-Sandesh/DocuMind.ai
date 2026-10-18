@@ -9,9 +9,7 @@ import type {
   OllamaStatus,
   UploadResponse,
 } from "../types/chat";
-
-const SERVER_BASE_URL = "http://127.0.0.1:8000";
-const API_BASE_URL = `${SERVER_BASE_URL}/api`;
+import { API_BASE_URL, SERVER_BASE_URL } from "./config";
 
 async function apiFetch(url: string, options?: RequestInit): Promise<Response> {
   try {

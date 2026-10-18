@@ -59,19 +59,15 @@ function ChatMessage({
                       {source.page_number != null && (
                         <span>Page {source.page_number}</span>
                       )}
+                      {source.section_title && <span>Section {source.section_title}</span>}
                       <span>
                         Chunk{" "}
                         {source.chunk_index}
                       </span>
 
-                      <span>
-                        Similarity{" "}
-                        {(
-                          source.similarity *
-                          100
-                        ).toFixed(1)}
-                        %
-                      </span>
+                      <span>{source.selection_method === "outline"
+                        ? "Document outline"
+                        : `Similarity ${(source.similarity * 100).toFixed(1)}%`}</span>
                     </div>
                     {source.text && (
                       <details className="source-excerpt">

@@ -21,6 +21,7 @@ function ChatBox({ documentIds, documentName, initialConversation, readOnly, onN
   const [error, setError] = useState("");
   const inFlightRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const documentSelected = documentIds.length > 0;
   const canSend = documentSelected && !readOnly;
 
@@ -82,7 +83,11 @@ function ChatBox({ documentIds, documentName, initialConversation, readOnly, onN
           <h3>{documentSelected ? "Ask about the selected documents" : "Select documents"}</h3>
           <p>{documentSelected ? `Ask questions about ${documentName}.`
             : "Upload or select documents from the document panel."}</p>
-          {documentSelected && <div className="example-question">Try: “Summarize the main points of these documents.”</div>}
+          {documentSelected && !readOnly && <div className="prompt-suggestions" aria-label="Suggested questions">
+            {["Summarize the main points", "List important terms", "What should I review next?"].map((prompt) =>
+              <button key={prompt} type="button" className="example-question" onClick={() => { setInput(prompt); inputRef.current?.focus(); }}>{prompt}<span aria-hidden="true">↗</span></button>
+            )}
+          </div>}
         </div>}
         {messages.map((message, index) => <ChatMessage key={`${message.role}-${index}`} message={message} />)}
         {loading && <div className="message-row assistant-row" role="status">
@@ -97,7 +102,7 @@ function ChatBox({ documentIds, documentName, initialConversation, readOnly, onN
       {error && <div className="chat-error" role="alert">{error}</div>}
       <div className="input-area">
         <label className="sr-only" htmlFor="chat-question">Your question</label>
-        <textarea id="chat-question" value={input} rows={2} maxLength={5000}
+        <textarea ref={inputRef} id="chat-question" value={input} rows={2} maxLength={5000}
           placeholder={readOnly ? "This conversation is read only"
             : documentSelected ? `Ask about ${documentName}...` : "Select a document first..."}
           disabled={loading || !canSend} onChange={(event) => setInput(event.target.value)}

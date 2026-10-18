@@ -40,6 +40,212 @@ This helps generate answers that are more:
 
 The project demonstrates how modern **AI systems, vector databases, semantic search, backend APIs, and frontend applications** can be integrated into one complete system.
 
+## Version 2 learning platform progress
+
+PDF uploads use local Marker parsing for page-aware sections, tables, equations,
+and image extraction. See [backend/MARKER_SETUP.md](backend/MARKER_SETUP.md) for
+the required offline model cache and validation steps.
+
+The Version 1 document chat remains available. Version 2 Phases 3–5 add a
+learning catalog, AI study tools, student accounts and teacher courses. A subject contains topics;
+each topic contains lessons with difficulty, objectives and optional links to
+uploaded documents. Numbered migrations run automatically on the first catalog
+or student request. See [PROJECT_ROADMAP.md](PROJECT_ROADMAP.md) for the
+current step and remaining work.
+
+Catalog endpoints:
+
+- `POST/GET /api/learning/subjects`
+- `POST/GET /api/learning/topics` (`subject_id` list filter)
+- `POST/GET /api/learning/lessons` (`topic_id` list filter)
+- `GET /api/learning/lessons/{lesson_id}`
+
+Use **Learning tools** in the top navigation to generate a lesson, quiz,
+flashcards or vocabulary from a topic. Choose beginner, intermediate or
+advanced difficulty and English, Nepali or bilingual output. You can optionally
+select up to five uploaded documents for grounding. When documents are selected,
+the API validates them, retrieves relevant excerpts and returns source details.
+If no relevant evidence is found, generation stops with a clear error.
+
+Learning tool endpoints:
+
+- `POST /api/learning/generate-lesson`
+- `POST /api/learning/generate-quiz`
+- `POST /api/learning/evaluate-quiz`
+- `POST /api/learning/generate-flashcards`
+- `POST /api/learning/generate-vocabulary`
+
+Local Ollama generation uses structured JSON output and Pydantic validation.
+The quiz UI offers draft review and editing before practice. Objective questions
+are scored by exact normalized answers. Short answers receive provisional
+practice feedback: every listed rubric keyword or phrase must appear for a
+point. Anonymous quiz drafts and scores are client supplied and temporary.
+Signed-in quizzes are stored on the server and each submitted attempt is saved
+with its answers, score, time and topic. These practice scores are **not suitable
+for high-stakes grading**. Teachers can review, publish and assign quizzes in Phase 5.
+Signed-in flashcards are saved and join the scheduled review queue; anonymous
+flashcards remain temporary.
+Review generated facts and translations, especially Nepali, before using them
+for teaching.
+
+### Student portal
+
+Open **Student** in the top navigation. Create an account with a display name,
+email and password, or sign in. The dashboard shows saved attempts, completed
+catalog lessons, topic totals and study sessions. Start and end a study session
+to record actual elapsed time. Edit your preferred language and learning goals
+in your profile. While signed in, quizzes generated in **Learning tools** are
+saved; their question draft is locked and each practice attempt is recorded.
+
+Student routes under `/api/student` provide registration, login, logout,
+`me`, profile updates, saved quiz generation/submission, owned attempt lookup,
+lesson completion, study session start/end and the dashboard. Every private
+route requires a bearer token. Passwords use salted PBKDF2 hashes; random
+sessions expire after seven days and logout revokes the token. The browser keeps
+the token in session storage. Enrolled students can read course lessons,
+download assigned PDF/TXT materials, use them in AI learning tools, take assigned
+quizzes once, and tag real study sessions to a course. The dashboard now shows
+owned recommendations, due flashcards, and topic-specific practice actions.
+
+Phase 6.1 adds a **Topic knowledge** panel and protected
+`GET /api/student/knowledge-profile` endpoint. Each profile is calculated from
+saved quiz answers for that student: attempts, correct and incorrect objective
+answers, recent accuracy, a mastery estimate, and last practice time. The
+estimate is 60% accuracy from the most recent three attempts plus 40% accuracy
+across all attempts. Provisional short-answer feedback is excluded. Profiles
+with fewer than two attempts or five objective answers are labeled **Early
+estimate**. This score is a practice aid, not a validated prediction.
+
+Phase 6.2 labels supported topics as **Needs review** when mastery is below
+60%, or when recent accuracy is below 50% with at least two incorrect answers.
+Supported topics are **Strong** when both mastery and recent accuracy reach
+80%; otherwise they are **Developing**. Early estimates are never labeled weak.
+The student dashboard explains each label and offers practice for saved
+free-practice topics.
+
+Phase 6.3 adds an optional **Adjust quiz difficulty from my saved answers**
+setting for signed-in student quizzes. Starting from the selected difficulty,
+weak topics move down one level, strong topics move up one level, and developing
+or early topics stay at that level. The generated quiz response reports the
+effective difficulty and reason. This uses only that student's own
+free-practice topic history; generated quiz content remains practice material.
+
+Phase 6.4 adds **Generate personalized quiz** for signed-in students. The
+server chooses a supported weak topic first, then an available unpracticed
+catalog topic, then a topic needing more evidence. It passes up to three saved
+incorrect objective questions as concept cues and includes catalog lesson
+objectives when available. Generated questions are new practice material;
+their difficulty follows the topic's current level. Personalized catalog
+quizzes keep the catalog topic ID when attempts are saved. A topic key supplied
+from a recommendation is checked against the student's own history and course
+access.
+
+Phase 6.5 saves signed-in flashcard decks and schedules each card. Reveal a
+card, then choose **Again**, **Hard**, **Good**, or **Easy**. Again returns in
+10 minutes; Hard returns after at least one day; Good uses 1 day, then 3 days,
+then an ease-based interval; Easy starts at 3 days and grows faster. The
+dashboard shows due cards and each card's rating history. Reviews and decks are
+private to the student. `GET /api/student/reviews/due`,
+`POST /api/student/reviews/{card_id}`, and the history route expose the data.
+
+Phase 6.6 fills **Recommended next** from due cards, unattempted assigned
+quizzes, weak topics, completed lessons to revisit, and available next lessons.
+Each recommendation explains its evidence and opens the matching activity.
+The same list is available at `GET /api/student/recommendations`.
+
+Phase 6.7 adds optional **Speech** and vocabulary listening controls. All
+speech processing uses local Piper text-to-speech and Vosk speech-to-text;
+the server never forwards audio to a cloud service. This checkout has an
+English (US) Piper voice and Vosk recognizer cached under
+`backend/.models/speech/` (ignored by Git). Start the backend with
+`backend/.venv/Scripts/python.exe` to use the installed packages. From the
+`backend` directory, verify both authenticated API paths with:
+
+```powershell
+.venv\Scripts\python.exe -m scripts.smoke_speech
+```
+
+On a new machine, use an activated backend Python environment and run these
+one-time downloads from the `backend` directory. The voice and recognizer come
+from the [Piper CLI](https://github.com/OHF-Voice/piper1-gpl/blob/main/docs/CLI.md)
+and [Vosk model catalog](https://alphacephei.com/vosk/models):
+
+```powershell
+python -m pip install -r requirements.txt
+python -m piper.download_voices --data-dir .models/speech/piper en_US-lessac-medium
+New-Item -ItemType Directory -Force .models/speech/vosk | Out-Null
+Invoke-WebRequest -Uri "https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip" -OutFile .models/speech/vosk/vosk-model-small-en-us-0.15.zip
+Expand-Archive -LiteralPath .models/speech/vosk/vosk-model-small-en-us-0.15.zip -DestinationPath .models/speech/vosk
+```
+
+Speech needs no network after this. The backend finds these paths
+automatically. `PIPER_EXECUTABLE`, `PIPER_MODEL_PATH`, `VOSK_MODEL_PATH`, and
+`SPEECH_LANGUAGE` may override the defaults for a different local voice or
+recognizer. Use matching voice and recognition languages. The supplied models
+support English (US) speech; the Speech tab reports local readiness, and
+unconfigured operations return HTTP 503.
+
+Speech input accepts mono 16-bit PCM WAV up to 30 seconds and 4 MB. The
+microphone control records up to 15 seconds and converts it to WAV in the
+browser. Repeat-after-me displays a rough transcription for self-comparison;
+it does not calculate pronunciation accuracy or phonetic scores. Browser
+microphone access from other LAN devices needs HTTPS (Phase 6.8).
+
+### Offline LAN deployment (Phase 6.8)
+
+Build the frontend, then run the backend's HTTPS LAN launcher using the host
+desktop's private IPv4 address:
+
+```powershell
+cd frontend
+npm run build
+cd ..\backend
+.\.venv\Scripts\python.exe -m scripts.run_lan --host 192.168.1.25
+```
+
+It prompts for a LAN access password and creates a local certificate under
+`backend/.certs/`. Trust only `lan-ca.pem` on each student device, then open
+`https://192.168.1.25:8443/` (using your host's actual IP). See
+[LAN_DEPLOYMENT.md](backend/LAN_DEPLOYMENT.md) for certificate trust, firewall,
+offline model, backup, and verification steps. The frontend now calls the API
+on the same origin; local Vite development proxies `/api` and `/rag` to FastAPI.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for data flow and storage, and
+[FINAL_VALIDATION.md](backend/FINAL_VALIDATION.md) for test results and the
+remaining second-device acceptance checklist. Frontend checks run with
+`npm test`, `npm run build`, and `npm run lint`.
+
+### Teacher portal
+
+Teacher registration requires a server-side code. Set a private code in the
+same PowerShell terminal before starting the backend:
+
+```powershell
+$env:TEACHER_REGISTRATION_CODE = "choose-a-long-private-code"
+uvicorn app.main:app --reload
+```
+
+Open **Teacher** in the top navigation, create a teacher account with that
+code, and sign in. Existing student accounts cannot change their own role.
+Create a course, add topics and ordered lessons, upload PDF/TXT materials,
+enroll existing student accounts by email, then generate or manually create
+quiz drafts. Review and edit every question before publishing. Published
+quizzes are locked; assign them to all enrolled students or a selected group.
+The portal shows submissions and answers for your own courses only.
+
+Course analytics aggregate stored assignments, attempts, completed lessons and
+course-tagged study sessions. A completion rate has no value until an assignment
+exists; an average score has no value until students submit. The weak-topic
+chart counts students only after at least two assigned attempts in a topic and
+less than 60% total points. General study sessions are excluded from course
+study totals. Use **Refresh data** in the teacher course view after students
+submit new work.
+
+Teacher-managed documents are hidden from the older public document and
+learning APIs. Enrolled students and the owning teacher can download them
+through protected course routes; signed-in students can select their course
+materials in Learning tools. Earlier unowned catalog records remain available
+through the Version 2 public catalog API for compatibility.
+
 ---
 
 # 🚀 Features
@@ -949,9 +1155,10 @@ message storage stay the same.
 - [ ] Streaming responses
 - [ ] Hybrid search
 - [ ] Reranking
-- [ ] User authentication
+- [x] Student and teacher authentication
+- [x] Offline HTTPS LAN launcher and local model integration
 - [ ] Docker support
-- [ ] Production deployment
+- [ ] Physical second-device LAN and microphone acceptance
 - [ ] Larger real-world retrieval evaluation and metrics
 - [ ] Response feedback system
 - [ ] Advanced document metadata filtering

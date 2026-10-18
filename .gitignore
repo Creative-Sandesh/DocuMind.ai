@@ -1,2 +1,5 @@
 backend/app/data/conversations.sqlite3*
 __pycache__/
+backend/.models/
+backend/.venv/
+backend/.certs/

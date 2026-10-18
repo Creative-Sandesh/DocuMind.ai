@@ -6,8 +6,11 @@ export interface Source {
   filename: string;
   chunk_index: number;
   page_number?: number | null;
+  section_title?: string | null;
+  block_type?: string | null;
   text?: string | null;
   similarity: number;
+  selection_method?: "outline" | null;
 }
 
 export interface Message {
