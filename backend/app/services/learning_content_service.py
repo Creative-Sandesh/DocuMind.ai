@@ -1,17 +1,11 @@
 """SQLite learning catalog; shares the existing conversation database file."""
 
 import sqlite3
-from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Iterator
 from uuid import UUID, uuid4
 
 from app.schemas.learning_content import LessonCreate, SubjectCreate, TopicCreate
-from app.services import memory_service
-
-
-MIGRATIONS_DIR = Path(__file__).resolve().parents[1] / "migrations"
+from app.services.database import database as _database
 
 
 class CatalogNotFoundError(Exception):
@@ -22,43 +16,8 @@ class CatalogConflictError(Exception):
     pass
 
 
-@contextmanager
-def _database() -> Iterator[sqlite3.Connection]:
-    """Apply pending migrations before a catalog operation, preserving old data."""
-    path = memory_service.DB_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-    database = sqlite3.connect(path, timeout=10)
-    database.row_factory = sqlite3.Row
-    database.execute("PRAGMA foreign_keys = ON")
-    try:
-        database.execute("BEGIN IMMEDIATE")
-        database.execute(
-            "CREATE TABLE IF NOT EXISTS schema_migrations ("
-            "version TEXT PRIMARY KEY, applied_at TEXT NOT NULL)"
-        )
-        applied = {
-            row["version"]
-            for row in database.execute("SELECT version FROM schema_migrations")
-        }
-        for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
-            if migration.stem in applied:
-                continue
-            # Migration files contain only SQL statements, with no procedural blocks.
-            for statement in migration.read_text(encoding="utf-8").split(";"):
-                if statement.strip():
-                    database.execute(statement)
-            database.execute(
-                "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-                (migration.stem, datetime.now(timezone.utc).isoformat()),
-            )
-        database.commit()
-        yield database
-        database.commit()
-    except BaseException:
-        database.rollback()
-        raise
-    finally:
-        database.close()
+class CatalogForbiddenError(Exception):
+    pass
 
 
 def _now() -> str:
@@ -100,7 +59,7 @@ def create_subject(request: SubjectCreate) -> dict:
 
 def list_subjects() -> list[dict]:
     with _database() as database:
-        return [dict(row) for row in database.execute("SELECT * FROM subjects ORDER BY title")]
+        return [dict(row) for row in database.execute("SELECT s.* FROM subjects s LEFT JOIN courses c ON c.subject_id = s.id WHERE c.teacher_id IS NULL ORDER BY s.title")]
 
 
 def create_topic(request: TopicCreate) -> dict:
@@ -112,6 +71,8 @@ def create_topic(request: TopicCreate) -> dict:
     with _database() as database:
         if not database.execute("SELECT 1 FROM subjects WHERE id = ?", (topic["subject_id"],)).fetchone():
             raise CatalogNotFoundError("Subject not found")
+        if database.execute("SELECT 1 FROM courses WHERE subject_id = ? AND teacher_id IS NOT NULL", (topic["subject_id"],)).fetchone():
+            raise CatalogForbiddenError("Use the teacher course API for this subject")
         try:
             database.execute(
                 "INSERT INTO topics (id, subject_id, title, description, position, created_at) "
@@ -125,27 +86,30 @@ def create_topic(request: TopicCreate) -> dict:
 def list_topics(subject_id: UUID | None = None) -> list[dict]:
     with _database() as database:
         if subject_id is not None and not database.execute(
-            "SELECT 1 FROM subjects WHERE id = ?", (str(subject_id),)
+            "SELECT 1 FROM subjects s LEFT JOIN courses c ON c.subject_id = s.id WHERE s.id = ? AND c.teacher_id IS NULL", (str(subject_id),)
         ).fetchone():
             raise CatalogNotFoundError("Subject not found")
-        query = "SELECT * FROM topics"
+        query = "SELECT t.* FROM topics t LEFT JOIN courses c ON c.subject_id = t.subject_id WHERE c.teacher_id IS NULL"
         parameters: tuple[str, ...] = ()
         if subject_id is not None:
-            query += " WHERE subject_id = ?"
+            query += " AND t.subject_id = ?"
             parameters = (str(subject_id),)
-        return [dict(row) for row in database.execute(query + " ORDER BY position, title", parameters)]
+        return [dict(row) for row in database.execute(query + " ORDER BY t.position, t.title", parameters)]
 
 
 def create_lesson(request: LessonCreate) -> dict:
+    created_at = _now()
     lesson = {
         "id": str(uuid4()), "topic_id": str(request.topic_id),
         "title": request.title, "summary": request.summary, "body": request.body,
         "difficulty": request.difficulty, "position": request.position,
-        "created_at": _now(), "updated_at": _now(),
+        "created_at": created_at, "updated_at": created_at,
     }
     with _database() as database:
         if not database.execute("SELECT 1 FROM topics WHERE id = ?", (lesson["topic_id"],)).fetchone():
             raise CatalogNotFoundError("Topic not found")
+        if database.execute("SELECT 1 FROM topics t JOIN courses c ON c.subject_id = t.subject_id WHERE t.id = ? AND c.teacher_id IS NOT NULL", (lesson["topic_id"],)).fetchone():
+            raise CatalogForbiddenError("Use the teacher course API for this topic")
         try:
             database.execute(
                 "INSERT INTO lessons (id, topic_id, title, summary, body, difficulty, "
@@ -170,7 +134,7 @@ def create_lesson(request: LessonCreate) -> dict:
 
 def get_lesson(lesson_id: UUID) -> dict:
     with _database() as database:
-        row = database.execute("SELECT * FROM lessons WHERE id = ?", (str(lesson_id),)).fetchone()
+        row = database.execute("SELECT l.* FROM lessons l JOIN topics t ON t.id = l.topic_id LEFT JOIN courses c ON c.subject_id = t.subject_id WHERE l.id = ? AND c.teacher_id IS NULL", (str(lesson_id),)).fetchone()
         if row is None:
             raise CatalogNotFoundError("Lesson not found")
         return _lesson(database, row)
@@ -179,15 +143,15 @@ def get_lesson(lesson_id: UUID) -> dict:
 def list_lessons(topic_id: UUID | None = None) -> list[dict]:
     with _database() as database:
         if topic_id is not None and not database.execute(
-            "SELECT 1 FROM topics WHERE id = ?", (str(topic_id),)
+            "SELECT 1 FROM topics t LEFT JOIN courses c ON c.subject_id = t.subject_id WHERE t.id = ? AND c.teacher_id IS NULL", (str(topic_id),)
         ).fetchone():
             raise CatalogNotFoundError("Topic not found")
-        query = "SELECT * FROM lessons"
+        query = "SELECT l.* FROM lessons l JOIN topics t ON t.id = l.topic_id LEFT JOIN courses c ON c.subject_id = t.subject_id WHERE c.teacher_id IS NULL"
         parameters: tuple[str, ...] = ()
         if topic_id is not None:
-            query += " WHERE topic_id = ?"
+            query += " AND l.topic_id = ?"
             parameters = (str(topic_id),)
         return [
             _lesson(database, row)
-            for row in database.execute(query + " ORDER BY position, title", parameters).fetchall()
+            for row in database.execute(query + " ORDER BY l.position, l.title", parameters).fetchall()
         ]

@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 import chromadb
 
@@ -85,6 +86,12 @@ def store_chunks(
             }
         if chunk.get("page_number") is not None:
             metadata["page_number"] = chunk["page_number"]
+        if chunk.get("section_title"):
+            metadata["section_title"] = chunk["section_title"]
+        if chunk.get("block_type"):
+            metadata["block_type"] = chunk["block_type"]
+        if chunk.get("extraction_method"):
+            metadata["extraction_method"] = chunk["extraction_method"]
         metadatas.append(metadata)
 
     collection.upsert(
@@ -191,6 +198,53 @@ def search_chunks(
         )
 
     return retrieved_chunks
+
+
+def get_document_overview_chunks(document_id: str, max_chunks: int = 3) -> list[dict]:
+    """Select the document title and contents for broad overview questions."""
+    if not document_id or max_chunks < 1:
+        return []
+    results = collection.get(
+        where={"$and": [
+            {"document_id": document_id},
+            {"chunk_index": {"$lt": 24}},
+        ]},
+        include=["documents", "metadatas"],
+    )
+    opening = sorted(
+        zip(results.get("ids") or [], results.get("documents") or [],
+            results.get("metadatas") or []),
+        key=lambda item: item[2].get("chunk_index", 0),
+    )
+    opening = [item for item in opening if isinstance(item[1], str) and item[1].strip()]
+    if not opening:
+        return []
+    contents = next(
+        (item for item in opening if re.search(r"(?im)^\s*(?:Section:\s*)?(?:table of )?contents\s*$", item[1])),
+        None,
+    )
+    chosen = [opening[0]]
+    if contents is not None and contents[0] != opening[0][0]:
+        chosen.append(contents)
+    continuation = (
+        [item for item in opening if item[2].get("chunk_index", 0) > contents[2].get("chunk_index", 0)]
+        if contents is not None else opening[1:]
+    )
+    for item in continuation:
+        if len(chosen) >= max_chunks:
+            break
+        if item[0] not in {value[0] for value in chosen}:
+            chosen.append(item)
+    return [
+        {
+            "chunk_id": chunk_id,
+            "text": text,
+            "metadata": metadata,
+            "similarity": 0.0,
+            "selection_method": "outline",
+        }
+        for chunk_id, text, metadata in chosen
+    ]
 
 
 def list_documents() -> list[dict]:

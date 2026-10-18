@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+import asyncio
 import httpx
 
 from app.schemas.chat import (
@@ -12,6 +13,7 @@ from app.services.rag_service import (
     generate_rag_response,
 )
 from app.services.ollama_service import OllamaResponseError
+from app.services.teacher_service import is_managed_document
 
 
 router = APIRouter()
@@ -24,6 +26,9 @@ router = APIRouter()
 async def chat(
     request: ChatRequest
 ):
+    for value in [request.document_id, *request.document_ids]:
+        if await asyncio.to_thread(is_managed_document, str(value)):
+            raise HTTPException(status_code=404, detail="Document not found")
     try:
         messages = [
             message.model_dump()

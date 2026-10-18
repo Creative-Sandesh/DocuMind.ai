@@ -28,6 +28,7 @@ from app.services.rag_memory_service import (
 from app.services.ollama_service import OllamaResponseError
 from app.services.rag_service import DocumentNotFoundError
 from app.services.vector_store_service import document_exists
+from app.services.teacher_service import is_managed_document
 
 
 router = APIRouter(
@@ -40,6 +41,8 @@ router = APIRouter(
 async def start_conversation(request: ConversationCreate):
     selected_ids = [str(value) for value in request.document_ids]
     for document_id in selected_ids:
+        if await asyncio.to_thread(is_managed_document, document_id):
+            raise HTTPException(status_code=404, detail=f"Document not found: {document_id}")
         if not await asyncio.to_thread(document_exists, document_id):
             raise HTTPException(status_code=404, detail=f"Document not found: {document_id}")
     return await asyncio.to_thread(create_conversation, selected_ids[0], selected_ids)
@@ -76,6 +79,9 @@ async def remove_conversation(conversation_id: UUID):
 async def rag_chat_memory(
     request: MemoryChatRequest,
 ):
+    for value in [request.document_id, *request.document_ids]:
+        if await asyncio.to_thread(is_managed_document, str(value)):
+            raise HTTPException(status_code=404, detail="Document not found")
     try:
         result = await chat_with_memory(
             document_id=str(request.document_id),

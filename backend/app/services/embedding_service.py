@@ -1,16 +1,26 @@
-from sentence_transformers import SentenceTransformer
+import os
+from threading import Lock
 
 
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 _model = None
+_model_lock = Lock()
 
 
 def get_embedding_model():
     global _model
 
     if _model is None:
-        _model = SentenceTransformer(MODEL_NAME)
+        with _model_lock:
+            if _model is None:
+                os.environ["HF_HUB_OFFLINE"] = "1"
+                os.environ["TRANSFORMERS_OFFLINE"] = "1"
+                os.environ["USE_TF"] = "0"
+                os.environ["USE_FLAX"] = "0"
+                from sentence_transformers import SentenceTransformer
+
+                _model = SentenceTransformer(MODEL_NAME, local_files_only=True)
 
     return _model
 

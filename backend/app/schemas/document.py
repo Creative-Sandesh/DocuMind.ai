@@ -47,6 +47,8 @@ class SearchResult(BaseModel):
     filename: str
     chunk_index: int
     page_number: int | None = None
+    section_title: str | None = None
+    block_type: str | None = None
     distance: float
     similarity: float
 

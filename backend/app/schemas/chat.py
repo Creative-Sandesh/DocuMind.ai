@@ -58,8 +58,11 @@ class ChatSource(BaseModel):
     filename: str
     chunk_index: int
     page_number: int | None = None
+    section_title: str | None = None
+    block_type: str | None = None
     text: str | None = None
     similarity: float
+    selection_method: Literal["outline"] | None = None
 
 
 class ChatResponse(BaseModel):

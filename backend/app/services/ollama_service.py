@@ -53,12 +53,20 @@ def prepare_ollama_messages(messages: list[dict[str, str]]) -> list[dict[str, st
     return [*system_messages, *conversation]
 
 
-async def generate_response(messages: list[dict[str, str]]) -> str:
+async def generate_response(
+    messages: list[dict[str, str]],
+    response_format: dict | str | None = None,
+    temperature: float | None = None,
+) -> str:
     payload = {
         "model": MODEL_NAME,
         "messages": prepare_ollama_messages(messages),
         "stream": False,
     }
+    if response_format is not None:
+        payload["format"] = response_format
+    if temperature is not None:
+        payload["options"] = {"temperature": temperature}
 
     async with httpx.AsyncClient(timeout=120.0) as client:
         response = await client.post(OLLAMA_URL, json=payload)

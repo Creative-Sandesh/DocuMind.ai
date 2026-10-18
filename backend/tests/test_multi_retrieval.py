@@ -103,6 +103,7 @@ class SearchApiTests(unittest.TestCase):
             chunk(second_id, "b", "Wrong filename", 0.9, "b.txt"),
             chunk(foreign_id, "x", "Unselected evidence", 0.99, "a.txt"),
         ]
+        candidates[0]["metadata"].update(page_number=4, section_title="Methods", block_type="Table")
         with patch("app.api.documents.document_exists", return_value=True), patch(
             "app.api.documents.retrieve_across_documents", return_value=candidates
         ) as retrieve:
@@ -117,6 +118,8 @@ class SearchApiTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200)
         self.assertEqual([item["chunk_id"] for item in response.json()["results"]], ["a"])
+        self.assertEqual(response.json()["results"][0]["section_title"], "Methods")
+        self.assertEqual(response.json()["results"][0]["block_type"], "Table")
         self.assertEqual(retrieve.call_args.kwargs["document_ids"], [first_id, second_id])
         self.assertEqual(retrieve.call_args.kwargs["filename"], "a.txt")
 

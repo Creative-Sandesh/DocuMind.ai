@@ -26,6 +26,8 @@ async def _call(function: Callable[..., T], *args) -> T:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except catalog.CatalogConflictError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    except catalog.CatalogForbiddenError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
 
 
 @router.post("/subjects", response_model=Subject, status_code=201)

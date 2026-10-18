@@ -34,6 +34,7 @@ from app.services.vector_store_service import (
     delete_document_chunks,
     delete_document_file
 )
+from app.services.teacher_service import is_managed_document
 
 
 router = APIRouter()
@@ -76,6 +77,7 @@ async def get_documents():
     documents = await asyncio.to_thread(
         list_documents
     )
+    documents = [document for document in documents if not await asyncio.to_thread(is_managed_document, document["document_id"])]
 
     return DocumentListResponse(
         documents=[
@@ -98,6 +100,9 @@ async def delete_document(
     document_id_string = str(
         document_id
     )
+
+    if await asyncio.to_thread(is_managed_document, document_id_string):
+        raise HTTPException(status_code=403, detail="This course material must be removed by its teacher.")
 
     deleted_chunks = await asyncio.to_thread(
         delete_document_chunks,
@@ -131,6 +136,8 @@ async def search_documents(
 ):
     selected_ids = [str(value) for value in request.document_ids]
     for document_id in selected_ids:
+        if await asyncio.to_thread(is_managed_document, document_id):
+            raise HTTPException(status_code=404, detail=f"Document not found: {document_id}")
         if not await asyncio.to_thread(document_exists, document_id):
             raise HTTPException(status_code=404, detail=f"Document not found: {document_id}")
 
@@ -181,6 +188,8 @@ async def search_documents(
                 ],
 
                 page_number=metadata.get("page_number"),
+                section_title=metadata.get("section_title"),
+                block_type=metadata.get("block_type"),
 
                 distance=result[
                     "distance"

@@ -7,14 +7,7 @@ from unittest.mock import patch
 from fastapi import UploadFile
 
 from app.services import document_service, vector_store_service
-
-
-class FakePage:
-    def __init__(self, text):
-        self.text = text
-
-    def extract_text(self):
-        return self.text
+from app.services.marker_service import ParsedBlock, ParsedPage, ParsedPdf
 
 
 class SourcePageTests(unittest.IsolatedAsyncioTestCase):
@@ -23,8 +16,16 @@ class SourcePageTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as temporary_directory, patch.object(
             document_service, "DOCUMENT_DIR", Path(temporary_directory)
         ), patch.object(
-            document_service, "PdfReader"
-        ) as reader, patch.object(
+            document_service, "convert_pdf", return_value=ParsedPdf(
+                pages=(
+                    ParsedPage(1, (ParsedBlock("Text", "First page evidence", "Introduction"),)),
+                    ParsedPage(2, ()),
+                    ParsedPage(3, (ParsedBlock("Text", "Third page evidence", "Results"),)),
+                ),
+                markdown="# Introduction\nFirst page evidence\n# Results\nThird page evidence",
+                images={},
+            )
+        ), patch.object(
             document_service, "generate_embeddings",
             side_effect=lambda chunks: [
                 {**chunk, "embedding": [0.1, 0.2]} for chunk in chunks
@@ -32,11 +33,6 @@ class SourcePageTests(unittest.IsolatedAsyncioTestCase):
         ), patch.object(
             document_service, "store_chunks", side_effect=lambda chunks, _: (stored.extend(chunks), len(chunks))[1]
         ), patch.object(document_service, "get_vector_count", return_value=2):
-            reader.return_value.pages = [
-                FakePage("First page evidence"),
-                FakePage(None),
-                FakePage("Third page evidence"),
-            ]
             upload = UploadFile(filename="guide.pdf", file=io.BytesIO(b"%PDF"))
             result = await document_service.process_document(upload)
 
@@ -47,6 +43,7 @@ class SourcePageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [chunk["chunk_index"] for chunk in stored], [0, 1]
         )
+        self.assertEqual([chunk["section_title"] for chunk in stored], ["Introduction", "Results"])
 
     def test_vector_metadata_includes_page_only_when_available(self):
         chunks = [
@@ -58,6 +55,8 @@ class SourcePageTests(unittest.IsolatedAsyncioTestCase):
                 "text": "alpha",
                 "embedding": [0.1],
                 "page_number": 3,
+                "section_title": "Results",
+                "block_type": "Table",
             },
             {
                 "chunk_id": "txt-chunk",
@@ -72,6 +71,8 @@ class SourcePageTests(unittest.IsolatedAsyncioTestCase):
             vector_store_service.store_chunks(chunks, "guide.pdf")
         metadata = collection.upsert.call_args.kwargs["metadatas"]
         self.assertEqual(metadata[0]["page_number"], 3)
+        self.assertEqual(metadata[0]["section_title"], "Results")
+        self.assertEqual(metadata[0]["block_type"], "Table")
         self.assertNotIn("page_number", metadata[1])
 
     def test_deleting_document_removes_saved_upload(self):

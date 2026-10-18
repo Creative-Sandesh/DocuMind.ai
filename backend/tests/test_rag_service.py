@@ -12,9 +12,29 @@ from app.services.rag_service import (
     build_chat_sources,
     generate_rag_response,
 )
+from app.services.vector_store_service import get_document_overview_chunks
 
 
 class GroundedRagTests(unittest.IsolatedAsyncioTestCase):
+    def test_overview_selection_prefers_contents_to_preface(self):
+        document_id = str(uuid4())
+        stored = {
+            "ids": ["preface", "contents", "title"],
+            "documents": [
+                "Preface: curricular contents are useful.",
+                "Section: Contents\nChapter 1: Motion\nChapter 2: Waves",
+                "PHYSICS Grade 12",
+            ],
+            "metadatas": [
+                {"document_id": document_id, "filename": "physics.pdf", "chunk_index": 2},
+                {"document_id": document_id, "filename": "physics.pdf", "chunk_index": 5},
+                {"document_id": document_id, "filename": "physics.pdf", "chunk_index": 0},
+            ],
+        }
+        with patch("app.services.vector_store_service.collection.get", return_value=stored):
+            selected = get_document_overview_chunks(document_id, 2)
+        self.assertEqual([item["chunk_id"] for item in selected], ["title", "contents"])
+
     async def test_comparison_prompt_uses_both_documents_and_labels(self):
         first_id, second_id = str(uuid4()), str(uuid4())
 
@@ -152,7 +172,7 @@ class GroundedRagTests(unittest.IsolatedAsyncioTestCase):
                 "filename": "book.pdf",
                 "chunk_index": 0,
             },
-            "similarity": 0.33,
+            "similarity": 0.28,
         }
         with patch(
             "app.services.rag_service.document_exists", return_value=True
@@ -174,6 +194,57 @@ class GroundedRagTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(overview_sources), 1)
         self.assertEqual(unrelated_sources, [])
         self.assertEqual(generate.await_count, 1)
+
+    async def test_broad_document_question_uses_contents_when_vector_search_is_weak(self):
+        document_id = str(uuid4())
+        outline = [
+            {
+                "chunk_id": "title", "text": "PHYSICS Grade 12",
+                "metadata": {"document_id": document_id, "filename": "physics.pdf", "chunk_index": 0},
+                "similarity": 0.0, "selection_method": "outline",
+            },
+            {
+                "chunk_id": "contents", "text": "Contents: Rotational Dynamics; Wave Motion; Electrical Circuits",
+                "metadata": {"document_id": document_id, "filename": "physics.pdf", "chunk_index": 5},
+                "similarity": 0.0, "selection_method": "outline",
+            },
+        ]
+        with patch("app.services.rag_service.document_exists", return_value=True), patch(
+            "app.services.rag_service.retrieve_relevant_chunks", return_value=[]
+        ), patch("app.services.rag_service.get_document_overview_chunks", return_value=outline), patch(
+            "app.services.rag_service.generate_response", new_callable=AsyncMock,
+            return_value="The book covers rotational dynamics, waves, and circuits [2].",
+        ) as generate:
+            answer, evidence = await generate_rag_response(
+                [{"role": "user", "content": "Summarize the main points"}], document_id,
+            )
+        self.assertIn("rotational dynamics", answer)
+        self.assertEqual([item["chunk_id"] for item in evidence], ["title", "contents"])
+        self.assertEqual(build_chat_sources(evidence)[1]["selection_method"], "outline")
+        self.assertIn("Contents: Rotational Dynamics", generate.await_args.args[0][-1]["content"])
+
+    async def test_broad_overview_covers_all_five_selected_documents(self):
+        document_ids = [str(uuid4()) for _ in range(5)]
+
+        def outline(document_id, _limit):
+            return [
+                {"chunk_id": f"{document_id}-{index}", "text": f"Document {document_id} part {index}",
+                 "metadata": {"document_id": document_id, "filename": "notes.txt", "chunk_index": index},
+                 "similarity": 0.0, "selection_method": "outline"}
+                for index in range(2)
+            ]
+
+        with patch("app.services.rag_service.document_exists", return_value=True), patch(
+            "app.services.rag_service.retrieve_across_documents", return_value=[]
+        ), patch("app.services.rag_service.get_document_overview_chunks", side_effect=outline), patch(
+            "app.services.rag_service.generate_response", new_callable=AsyncMock,
+            return_value="Overview from the selected documents.",
+        ):
+            _, evidence = await generate_rag_response(
+                [{"role": "user", "content": "Summarize the main points"}],
+                document_ids=document_ids,
+            )
+        self.assertEqual({item["metadata"]["document_id"] for item in evidence}, set(document_ids))
 
     async def test_ollama_rejects_success_response_without_answer(self):
         response = MagicMock()
